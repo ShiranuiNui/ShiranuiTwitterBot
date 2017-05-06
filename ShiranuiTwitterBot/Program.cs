@@ -34,8 +34,11 @@ namespace ShiranuiTwitterBot
         }
         internal static async Task<StatusResponse> Tweet(string text) =>
             await Token.Statuses.UpdateAsync(status => text);
-        internal static async void Tweet(string text, long replyid) =>
+        internal static async Task<StatusResponse> Tweet(string text, long replyid) =>
             await Token.Statuses.UpdateAsync(status => text, in_reply_to_status_id => replyid);
+
+        internal static async Task<StatusResponse> RequestTweetInfomation(long targetid) =>
+            await Token.Statuses.ShowAsync(id => targetid);
 
         internal static async void ReadTimelines()
         {
@@ -47,8 +50,10 @@ namespace ShiranuiTwitterBot
     static class SelfIntroduction
     {
         internal static int FavCount = 0;
-        internal static long TargetStatusId { get; set; }
+        internal static long QuestionStatusId { get; set; }
+        internal static long LatestReplyStatusId { get; set; }
         private static List<string> SelfIntroductionAnswers { get; set; } = new List<string>();
+        private static int SendedQuestionNumber = 0;
 
         internal static void SetSelfIntroductionInfomation()
         {
@@ -71,8 +76,9 @@ namespace ShiranuiTwitterBot
                     }
                     if (line == "")
                     {
-                        selfintroductionquestion = selfintroductionquestion.Substring(0, selfintroductionquestion.Length - 2);
-                        TargetStatusId = TwitterAPI.Tweet(selfintroductionquestion).Result.Id;
+                        selfintroductionquestion = selfintroductionquestion.Substring(0, selfintroductionquestion.Length - 1);
+                        QuestionStatusId = TwitterAPI.Tweet(selfintroductionquestion).Result.Id;
+                        LatestReplyStatusId = QuestionStatusId;
                         istweeted = true;
                     }
                 }
@@ -80,18 +86,23 @@ namespace ShiranuiTwitterBot
         }
         internal static void TweetSelfIntroductionAnswers()
         {
-            TwitterAPI.Tweet(SelfIntroductionAnswers[FavCount], TargetStatusId);
-            FavCount++;
+            SelfIntroductionAnswers[FavCount - 1] = $"{FavCount}:{SelfIntroductionAnswers[FavCount - 1]}";
+            LatestReplyStatusId = TwitterAPI.Tweet(SelfIntroductionAnswers[FavCount - 1], LatestReplyStatusId).Result.Id;
+            SendedQuestionNumber++;
         }
         internal static void OnEventReceived(EventMessage message)
         {
-            if (IsTargetEvent(message))
+            int currentFav = (int)TwitterAPI.RequestTweetInfomation(QuestionStatusId).Result.FavoriteCount;
+            bool isFavCountChanged = FavCount < currentFav ? true : false;
+            FavCount = currentFav;
+            if (isFavCountChanged && FavCount <= SelfIntroductionAnswers.Count && FavCount > SendedQuestionNumber && IsTargetEvent(message))
             {
+                //FavCount = (int)message.TargetStatus.FavoriteCount;
                 TweetSelfIntroductionAnswers();
             }
         }
         private static bool IsTargetEvent(EventMessage message) =>
-           message.Event == EventCode.Favorite && message.TargetStatus.Id == TargetStatusId
+           message.Event == EventCode.Favorite && message.TargetStatus.Id == QuestionStatusId
                 ? true
                 : false;
     }
